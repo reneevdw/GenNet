@@ -21,9 +21,7 @@ def check_data(datapath, mode):
         genotype_matrix = True
     else:
         print("genotype.h5 is missing")
-    if os.path.exists(datapath + 'topology.csv'):
-        network_structure = True
-    elif os.path.exists(datapath + '*.npz'):
+    if os.path.exists(datapath + 'topology.csv') or len(glob.glob(datapath + "/*.npz")) > 0:
         network_structure = True
     else:
         print("topology.csv and *.npz are missing")
