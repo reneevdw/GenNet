@@ -120,7 +120,7 @@ def create_network_from_npz(datapath, l1_value=0.01, regression=False):
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
     # Add additional layers based on masks.
-    for i in range(len(masks) - 1):
+    for i in range(len(masks)):
         mask = masks[i]
         model = layer_block(model, mask, i)
     model = K.layers.Flatten()(model)
