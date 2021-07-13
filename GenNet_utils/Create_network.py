@@ -83,55 +83,56 @@ def create_network_from_csv(datapath, l1_value=0.01, regression=False):
     return model, masks
 
 def create_network_from_npz(datapath, l1_value=0.01, regression=False):
-    print('ToDO: test')
-    masks = []
-    mask_shapes_x = []
-    mask_shapes_y = []
-
+    # Determine input size.
     h5file = tables.open_file(datapath + "genotype.h5", "r")
     inputsize = h5file.root.data.shape[1]
     h5file.close()
 
-    for npz_path in glob.glob(datapath + '/*.npz'):
-        mask = scipy.sparse.load_npz(npz_path)
-        masks.append(mask)
-        mask_shapes_x.append(mask.shape[0])
-        mask_shapes_y.append(mask.shape[1])
+    masks = []
+    mask_shapes_x = []
+    mask_shapes_y = []
 
-    for i in range(len(masks)):  # sort all the masks in the correct order
-        argsort_x = np.argsort(mask_shapes_x)[::-1]
-        argsort_y = np.argsort(mask_shapes_y)[::-1]
+    # Load masks.
+    mask0 = scipy.sparse.load_npz(glob.glob(datapath + '/*_SNP_enhancer_mask.npz')[0])
+    mask1 = scipy.sparse.load_npz(glob.glob(datapath + '/*_enhancer_gene_mask.npz')[0])
+    masks.append(mask0)
+    masks.append(mask1)
+    mask_shapes_x.append(mask0.shape[0])
+    mask_shapes_y.append(mask0.shape[1])
+    mask_shapes_x.append(mask1.shape[0])
+    mask_shapes_y.append(mask1.shape[1])
 
-        assert all(argsort_x == argsort_y) # check that both dimensions have the same order
+    # Check that the masks fit eachother.
+    for x in range(len(masks) - 1):
+        assert mask_shapes_y[x] == mask_shapes_x[x + 1]
 
-        masks  = [masks[i] for i in argsort_y] # sort masks
-        mask_shapes_x = mask_shapes_x[argsort_x]
-        mask_shapes_y = mask_shapes_y[argsort_y]
-
-        for x in range(len(masks)-1): # check that the masks fit eachother
-            assert mask_shapes_y[x] == mask_shapes_x[x + 1]
-
+    # Check first mask is the same size as input data.
     assert mask_shapes_x[0] == inputsize
-    if mask_shapes_y[-1] == 1:     # should we end with a dense layer?
+
+    # Check if last mask ends with 1 node.
+    if mask_shapes_y[-1] == 1:
         all_masks_available = True
     else:
         all_masks_available = False
 
+    # Make input layer.
     input_layer = K.Input((inputsize,), name='input_layer')
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
+    # Add additional layers based on masks.
     for i in range(len(masks) - 1):
         mask = masks[i]
         model = layer_block(model, mask, i)
-
     model = K.layers.Flatten()(model)
 
+    # Add output layer.
     if all_masks_available:
         output_layer = LocallyDirected1D(mask=masks[-1], filters=1, input_shape=(mask.shape[0], 1),
-                          name="output_layer")(model)
+                                         name="output_layer")(model)
     else:
         output_layer = K.layers.Dense(units=1, name="output_layer",
-                                  kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
+                                      kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
+
     if regression:
         output_layer = K.layers.Activation("linear")(output_layer)
     else:
@@ -140,7 +141,6 @@ def create_network_from_npz(datapath, l1_value=0.01, regression=False):
     model = K.Model(inputs=input_layer, outputs=output_layer)
 
     print(model.summary())
-
     return model, masks
 
 
