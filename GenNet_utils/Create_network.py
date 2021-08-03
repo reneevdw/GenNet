@@ -93,8 +93,8 @@ def create_network_from_npz(datapath, l1_value=0.01, regression=False):
     mask_shapes_y = []
 
     # Load masks.
-    mask0 = scipy.sparse.load_npz(glob.glob(datapath + '/*_SNP_enhancer_mask.npz')[0])
-    mask1 = scipy.sparse.load_npz(glob.glob(datapath + '/*_enhancer_gene_mask.npz')[0])
+    mask0 = scipy.sparse.load_npz(glob.glob(datapath + '/*SNP_*_mask.npz')[0])
+    mask1 = scipy.sparse.load_npz(glob.glob(datapath + '/*_gene_mask.npz')[0])
     masks.append(mask0)
     masks.append(mask1)
     mask_shapes_x.append(mask0.shape[0])
