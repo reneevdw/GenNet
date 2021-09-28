@@ -1,6 +1,7 @@
 import os
 import sys
 import warnings
+import numpy as np
 
 import matplotlib
 
