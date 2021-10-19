@@ -1,6 +1,7 @@
 import glob
 import os
 import sys
+import glob
 
 sys.path.insert(1, os.path.dirname(os.getcwd()) + "/GenNet_utils/")
 import matplotlib
