@@ -27,6 +27,8 @@ def weighted_binary_crossentropy(y_true, y_pred):
 
 
 def train_classification(args):
+    model = None
+    masks = None
     datapath = args.path
     jobid = args.ID
     wpc = args.wpc
@@ -35,16 +37,25 @@ def train_classification(args):
     epochs = args.epochs
     l1_value = args.L1
     problem_type = args.problem_type
-    check_data(datapath, problem_type)
+
+    if args.genotype_path == "undefined":
+        genotype_path = datapath
+    else:
+        genotype_path = args.genotype_path
+
+    check_data(datapath=datapath, genotype_path=genotype_path, mode=problem_type)
 
     global weight_positive_class, weight_negative_class
+
     weight_positive_class = wpc
     weight_negative_class = 1
+
     optimizer_model = tf.keras.optimizers.Adam(lr=lr_opt)
 
     train_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 1)
     val_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 2)
     test_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 3)
+    inputsize = get_inputsize(genotype_path)
 
     folder, resultpath = get_paths(jobid)
 
@@ -56,9 +67,13 @@ def train_classification(args):
     print("lr = " + str(lr_opt))
 
     if os.path.exists(datapath + "/topology.csv"):
-        model, masks = create_network_from_csv(datapath=datapath, l1_value=l1_value)
+        model, masks = create_network_from_csv(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
+                                               l1_value=l1_value)
     if len(glob.glob(datapath + "/*.npz")) > 0:
-        model, masks = create_network_from_npz(datapath=datapath, l1_value=l1_value)
+        model, masks = create_network_from_npz(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
+                                               l1_value=l1_value)
+        #     model, masks = lasso(6690270, l1_value)
+
 
     model.compile(loss=weighted_binary_crossentropy, optimizer=optimizer_model,
                   metrics=["accuracy", sensitivity, specificity])
@@ -74,18 +89,23 @@ def train_classification(args):
     if os.path.exists(resultpath + '/bestweights_job.h5'):
         print('Model already Trained')
     else:
+
+        train_generator = TrainDataGenerator(datapath=datapath,
+                                             genotype_path=genotype_path,
+                                             batch_size=batch_size,
+                                             trainsize=int(train_size), 
+                                             inputsize=inputsize)
         history = model.fit_generator(
-            generator=traindata_generator(datapath=datapath,
-                                          batch_size=batch_size,
-                                          trainsize=int(train_size)),
+            generator=train_generator,
             shuffle=True,
             epochs=epochs,
             verbose=1,
             callbacks=[earlystop, saveBestModel],
-            workers=15,
+            workers=10,
             use_multiprocessing=True,
-            validation_data=valdata_generator(datapath=datapath, batch_size=batch_size, valsize=val_size)
+            validation_data=EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=batch_size, setsize=val_size, inputsize=inputsize, evalset="validation")
         )
+
         plt.plot(history.history['loss'])
         plt.plot(history.history['val_loss'])
         plt.title('model loss')
@@ -99,14 +119,15 @@ def train_classification(args):
     print("Finished")
     print("Analysis over the validation set")
     pval = model.predict_generator(
-        valdata_generator(datapath=datapath, batch_size=1, valsize=val_size))
+        EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=1, setsize=val_size, inputsize=inputsize,
+                      evalset="validation"))
     yval = get_labels(datapath, set_number=2)
     auc_val, confusionmatrix_val = evaluate_performance(yval, pval)
     np.save(resultpath + "/pval.npy", pval)
 
     print("Analysis over the test set")
     ptest = model.predict_generator(
-        testdata_generator(datapath=datapath, batch_size=1, testsize=test_size))
+        EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=1, setsize=test_size, inputsize=inputsize, evalset="test"))
     ytest = get_labels(datapath, set_number=3)
     auc_test, confusionmatrix_test = evaluate_performance(ytest, ptest)
     np.save(resultpath + "/ptest.npy", ptest)
@@ -135,8 +156,9 @@ def train_classification(args):
         importance_csv.to_csv(resultpath + "connection_weights.csv")
 
 
-
 def train_regression(args):
+    model = None
+    masks = None
     datapath = args.path
     jobid = args.ID
     lr_opt = args.learning_rate
@@ -144,13 +166,20 @@ def train_regression(args):
     epochs = args.epochs
     l1_value = args.L1
     problem_type = args.problem_type
-    check_data(datapath, problem_type)
+
+    if args.genotype_path == "undefined":
+        genotype_path = datapath
+    else:
+        genotype_path = args.genotype_path
+
+    check_data(datapath=datapath, genotype_path=genotype_path, mode=problem_type)
 
     optimizer_model = tf.keras.optimizers.Adam(lr=lr_opt)
 
     train_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 1)
     val_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 2)
     test_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 3)
+    inputsize = get_inputsize(genotype_path)
 
     folder, resultpath = get_paths(jobid)
 
@@ -159,7 +188,13 @@ def train_regression(args):
     print("batchsize = " + str(batch_size))
     print("lr = " + str(lr_opt))
 
-    model, masks = create_network_from_csv(datapath=datapath, l1_value=l1_value, regression=True)
+    if os.path.exists(datapath + "/topology.csv"):
+        model, masks = create_network_from_csv(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
+                                               l1_value=l1_value)
+    if len(glob.glob(datapath + "/*.npz")) > 0:
+        model, masks = create_network_from_npz(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
+                                               l1_value=l1_value)
+
     model.compile(loss="mse", optimizer=optimizer_model,
                   metrics=["mse"])
 
@@ -176,16 +211,18 @@ def train_regression(args):
         print('Model already Trained')
     else:
         history = model.fit_generator(
-            generator=traindata_generator(datapath=datapath,
-                                          batch_size=batch_size,
-                                          trainsize=int(train_size)),
+            generator=TrainDataGenerator(datapath=datapath,
+                                         genotype_path=genotype_path,
+                                         batch_size=batch_size,
+                                         trainsize=int(train_size)),
             shuffle=True,
             epochs=epochs,
             verbose=1,
             callbacks=[earlystop, saveBestModel],
             workers=15,
             use_multiprocessing=True,
-            validation_data=valdata_generator(datapath=datapath, batch_size=batch_size, valsize=val_size)
+            validation_data=EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=batch_size,
+                                          setsize=val_size, inputsiz=inputsize, evalset="validation")
         )
         plt.plot(history.history['loss'])
         plt.plot(history.history['val_loss'])
@@ -200,7 +237,8 @@ def train_regression(args):
     print("Finished")
     print("Analysis over the validation set")
     pval = model.predict_generator(
-        valdata_generator(datapath=datapath, batch_size=1, valsize=val_size))
+        EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=1, setsize=val_size,
+                      evalset="validation", inputsize=inputsize))
     yval = get_labels(datapath, set_number=2)
     fig, mse_val, explained_variance_val, r2_val = evaluate_performance_regression(yval, pval)
     np.save(resultpath + "/pval.npy", pval)
@@ -208,7 +246,7 @@ def train_regression(args):
 
     print("Analysis over the test set")
     ptest = model.predict_generator(
-        testdata_generator(datapath=datapath, batch_size=1, testsize=test_size))
+        EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=1, setsize=test_size, inputsize=inputsize, evalset="test"))
     ytest = get_labels(datapath, set_number=3)
     fig, mse_test, explained_variance_test, r2_test = evaluate_performance_regression(ytest, ptest)
     np.save(resultpath + "/ptest.npy", ptest)
@@ -226,14 +264,12 @@ def train_regression(args):
         f.write("Validation set")
         f.write('\n Mean squared error = ' + str(mse_val))
         f.write('\n Explained variance = ' + str(explained_variance_val))
-        # f.write('\n Maximum error = ' + str(maximum_error_val))
         f.write('\n R2 = ' + str(r2_val))
         f.write("Test set")
         f.write('\n Mean squared error = ' + str(mse_test))
         f.write('\n Explained variance = ' + str(explained_variance_val))
-        # f.write('\n Maximum error = ' + str(maximum_error_test))
         f.write('\n R2 = ' + str(r2_test))
-        
+
     if os.path.exists(datapath + "/topology.csv"):
         importance_csv = create_importance_csv(datapath, model, masks)
         importance_csv.to_csv(resultpath + "connection_weights.csv")

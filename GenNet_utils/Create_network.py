@@ -44,28 +44,23 @@ def layer_block(model, mask, i):
     model = K.layers.BatchNormalization(center=False, scale=False)(model)
     return model
 
-def create_network_from_csv(datapath, l1_value=0.01, regression=False):
+def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, regression=False):
     masks = []
     network_csv = pd.read_csv(datapath + "/topology.csv")
     network_csv = network_csv.filter(like="node", axis=1)
     columns = list(network_csv.columns.values)
     network_csv = network_csv.sort_values(by=columns, ascending=True)
 
-    h5file = tables.open_file(datapath + "genotype.h5", "r")
-    inputsize = h5file.root.data.shape[1]
-    h5file.close()
-
     input_layer = K.Input((inputsize,), name='input_layer')
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
     for i in range(len(columns) - 1):
-        network_csv2 = network_csv.drop_duplicates(columns[i])
-        matrix_ones = np.ones(len(network_csv2[[columns[i], columns[i + 1]]]), np.bool)
-        matrix_coord = (network_csv2[columns[i]].values, network_csv2[columns[i + 1]].values)
+        matrix_ones = np.ones(len(network_csv[[columns[i], columns[i + 1]]]), np.bool)
+        matrix_coord = (network_csv[columns[i]].values, network_csv[columns[i + 1]].values)
         if i == 0:
-            matrixshape = (inputsize, network_csv2[columns[i + 1]].max() + 1)
+            matrixshape = (inputsize, network_csv[columns[i + 1]].max() + 1)
         else:
-            matrixshape = (network_csv2[columns[i]].max() + 1, network_csv2[columns[i + 1]].max() + 1)
+            matrixshape = (network_csv[columns[i]].max() + 1, network_csv[columns[i + 1]].max() + 1)
         mask = scipy.sparse.coo_matrix(((matrix_ones), matrix_coord), shape = matrixshape)
         masks.append(mask)
         model = layer_block(model, mask, i)
@@ -85,14 +80,10 @@ def create_network_from_csv(datapath, l1_value=0.01, regression=False):
 
     return model, masks
 
-def create_network_from_npz(datapath, l1_value=0.01, regression=False):
+def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, regression=False):
     masks = []
     mask_shapes_x = []
     mask_shapes_y = []
-
-    h5file = tables.open_file(datapath + "genotype.h5", "r")
-    inputsize = h5file.root.data.shape[1]
-    h5file.close()
 
     for npz_path in glob.glob(datapath + '/*.npz'):
         mask = scipy.sparse.load_npz(npz_path)
@@ -149,9 +140,10 @@ def create_network_from_npz(datapath, l1_value=0.01, regression=False):
 
 
 def lasso(inputsize, l1_value):
+    masks=[]
     inputs = K.Input((inputsize,), name='inputs')
     x1 = K.layers.BatchNormalization(center=False, scale=False, name="inter_out")(inputs)
     x1 = K.layers.Dense(units=1, kernel_regularizer=K.regularizers.l1(l1_value))(x1)
     x1 = K.layers.Activation("sigmoid")(x1)
     model = K.Model(inputs=inputs, outputs=x1)
-    return model
+    return model, masks
