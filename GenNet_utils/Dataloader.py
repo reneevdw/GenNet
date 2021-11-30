@@ -41,9 +41,9 @@ def check_data(datapath, genotype_path, mode):
         patient_info = True
         groundtruth = pd.read_csv(datapath + "/subjects.csv")
 
-        number_of_covariates = groundtruth.filter(like="_cov").shape[1]
+        number_of_covariates = groundtruth.filter(like="cov_").shape[1]
         print('number of covariates:', number_of_covariates)
-        print('columns found:', list(groundtruth.filter(like="_cov").columns.values))
+        print('columns found:', list(groundtruth.filter(like="cov_").columns.values))
 
         if {'patient_id', 'labels', 'genotype_row', 'set'}.issubset(groundtruth.columns):
             classification_problem = ((groundtruth["labels"].values == 0) | (groundtruth["labels"].values == 1)).all()
@@ -134,7 +134,7 @@ class TrainDataGenerator(K.utils.Sequence):
         genotype_hdf = tables.open_file(self.genotype_path + "/genotype.h5", "r")
         batchindexes = self.shuffledindexes[idx * self.batch_size:((idx + 1) * self.batch_size)]
         ybatch = self.training_subjects["labels"].iloc[batchindexes]
-        xcov = self.training_subjects.filter(like="_cov").iloc[batchindexes]
+        xcov = self.training_subjects.filter(like="cov_").iloc[batchindexes]
         xcov = xcov.values
         xbatchid = np.array(self.training_subjects["genotype_row"].iloc[batchindexes], dtype=np.int64)
         xbatch = genotype_hdf.root.data[xbatchid, :]
@@ -145,7 +145,7 @@ class TrainDataGenerator(K.utils.Sequence):
     def multi_genotype_matrix(self, idx):
         batchindexes = self.shuffledindexes[idx * self.batch_size:((idx + 1) * self.batch_size)]
         ybatch = self.training_subjects["labels"].iloc[batchindexes]
-        xcov = self.training_subjects.filter(like="_cov").iloc[batchindexes]
+        xcov = self.training_subjects.filter(like="cov_").iloc[batchindexes]
         xcov = xcov.values
         subjects_current_batch = self.training_subjects.iloc[batchindexes]
         subjects_current_batch["batch_index"] = np.arange(len(subjects_current_batch))
@@ -206,7 +206,7 @@ class EvalGenerator(K.utils.Sequence):
     def single_genotype_matrix(self, idx):
         genotype_hdf = genotype_hdf = tables.open_file(self.genotype_path + "/genotype.h5", "r")
         ybatch = self.eval_subjects["labels"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
-        xcov = self.eval_subjects.filter(like="_cov").iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
+        xcov = self.eval_subjects.filter(like="cov_").iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
         xcov = xcov.values
         xbatchid = np.array(
             self.eval_subjects["genotype_row"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)],
@@ -229,7 +229,7 @@ class EvalGenerator(K.utils.Sequence):
             xbatch[subjects_current_chunk["batch_index"].values, :] = genotype_hdf.root.data[xbatchid, :]
             genotype_hdf.close()
         ybatch = np.reshape(np.array(subjects_current_batch["labels"]), (-1, 1))
-        xcov = subjects_current_batch.filter(like="_cov").values
+        xcov = subjects_current_batch.filter(like="cov_").values
         return [xbatch, xcov], ybatch
 
 

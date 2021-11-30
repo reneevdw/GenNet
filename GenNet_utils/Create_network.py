@@ -56,7 +56,7 @@ def activation_layer(model, regression):
     return model
 
 
-def add_covariates(model, num_covariates):
+def add_covariates(model, input_cov, num_covariates, regression):
     if num_covariates > 0:
         model = activation_layer(model, regression)
         model = K.layers.concatenate([model, input_cov], axis=1)
@@ -92,7 +92,7 @@ def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, r
     model = K.layers.Dense(units=1, name="output_layer",
                            kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
 
-    model = add_covariates(model, num_covariates)
+    model = add_covariates(model, input_cov, num_covariates, regression)
 
     output_layer = activation_layer(model, regression)
 
@@ -150,7 +150,7 @@ def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, r
         model = K.layers.Dense(units=1, name="output_layer",
                                kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
 
-    model = add_covariates(model, num_covariates)
+    model = add_covariates(model, input_cov, num_covariates, regression)
 
     output_layer = activation_layer(model, regression)
     model = K.Model(inputs=[input_layer, input_cov], outputs=output_layer)

@@ -107,7 +107,7 @@ if __name__ == '__main__':
         "-epochs",
         type=int,
         metavar="number of epochs",
-        default=100,
+        default=1000,
         help='Hyperparameter: batch size'
     )
     parser_train.add_argument(
