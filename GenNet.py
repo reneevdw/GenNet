@@ -49,7 +49,8 @@ if __name__ == '__main__':
 
     parser_convert.add_argument('-vcf', action='store_true', default=False, help='Flag for VCF data to convert')
     parser_convert.add_argument('-tcm', type=int, default=500000000,
-                                help='Modifier for chunk size during TRANSPOSING make it lower if you run out of memory during transposing')
+                                help='Modifier for chunk size during TRANSPOSING make it lower if you run out \
+                                of memory during transposing')
     parser_convert.add_argument('-step', type=str,
                                 default='all',
                                 choices=['all', 'hase_convert', 'merge', 'impute', 'exclude', 'transpose',
@@ -107,7 +108,7 @@ if __name__ == '__main__':
         "-epochs",
         type=int,
         metavar="number of epochs",
-        default=100,
+        default=1000,
         help='Hyperparameter: batch size'
     )
     parser_train.add_argument(
