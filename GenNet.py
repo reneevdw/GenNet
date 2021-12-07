@@ -59,6 +59,9 @@ if __name__ == '__main__':
     parser_convert.add_argument('-n_jobs', type=int,
                                 default=1,
                                 help='Choose jobs > 1 for multiple job submission on a cluster')
+    parser_convert.add_argument('-comp_level', type=int,
+                                default=1,
+                                help='How compressed should the data be? Between 1-9. 1 for low compression, 9 is highest compression')
 
     parser_train = subparsers.add_parser("train", help="Trains the network")
     parser_train.add_argument(
@@ -75,6 +78,12 @@ if __name__ == '__main__':
         "-genotype_path",
         type=str,
         help="path to genotype data",
+        default="undefined"
+    )
+    parser_train.add_argument(
+        "-network_name",
+        type=str,
+        help="name of the network",
         default="undefined"
     )
     parser_train.add_argument(
@@ -118,6 +127,15 @@ if __name__ == '__main__':
         default=0.01,
         help='Hyperparameter: value for the L1 regularization pentalty similar as in lasso, enforces sparsity'
     )
+    parser_train.add_argument(
+        "-mixed_precision",
+        metavar="mixed_precision",
+        type=bool,
+        default=False,
+        help='use mixed precision to save memory (can reduce performance)'
+    )
+    
+    
 
     parser_plot = subparsers.add_parser("plot", help="Generate plots from a trained network")
     parser_plot.add_argument(

@@ -22,6 +22,43 @@ else:
     print("unexpected tensorflow version")
     from GenNet_utils.LocallyDirectedConnected_tf2 import LocallyDirected1D
 
+   
+    
+def regression_height(inputsize, num_covariates=2, l1_value=0.001):
+    mask = scipy.sparse.load_npz('/home/ahilten/repositories/pheno_height/Input_files/SNP_nearest_gene_mask.npz')
+    masks = [mask]
+    
+    input_cov = K.Input((num_covariates,), name='inputs_cov')
+    
+    inputs_ = K.Input((mask.shape[0],), name='inputs_')
+    layer_0 = K.layers.Reshape(input_shape=(mask.shape[0],), target_shape=(inputsize, 1))(inputs_)
+    
+    layer_1 = LocallyDirected1D(mask=mask, filters=1, input_shape=(inputsize, 1), name="gene_layer")(layer_0)
+    layer_1 = K.layers.Flatten()(layer_1)
+    layer_1 = K.layers.Activation("relu")(layer_1)
+    layer_1 = K.layers.BatchNormalization()(layer_1)
+    
+    layer_2 = K.layers.Dense(units=10, kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(layer_1)
+    layer_2 = K.layers.Activation("relu")(layer_2) 
+    
+    layer_3 = K.layers.concatenate([layer_2, input_cov], axis=1)
+    layer_3 = K.layers.BatchNormalization()(layer_3)
+    layer_3 = K.layers.Dense(units=10)(layer_3)
+    layer_3 = K.layers.Activation("relu")(layer_3) 
+        
+    layer_4 = K.layers.Dense(units=10)(layer_3)
+    layer_4 = K.layers.Activation("relu")(layer_4) 
+    
+    layer_5 = K.layers.Dense(units=1, bias_initializer= tf.keras.initializers.Constant(168))(layer_4)
+    layer_5 = K.layers.Activation("relu")(layer_5)
+    
+    model = K.Model(inputs=[inputs_, input_cov], outputs=layer_5)
+    
+    print(model.summary())
+    
+    return model, masks
+    
+    
 def example_network():
     mask = scipy.sparse.load_npz('./folder/snps_gene.npz')
     masks = [mask]
@@ -30,7 +67,6 @@ def example_network():
     input_cov = K.Input((num_covariates,), name='inputs_cov')
 
     layer_0 = K.layers.Reshape(input_shape=(mask.shape[0],), target_shape=(inputsize, 1))(inputs_)
-
     layer_1 = LocallyDirected1D(mask=mask, filters=1, input_shape=(inputsize, 1), name="gene_layer")(layer_0)
     layer_1 = K.layers.Flatten()(layer_1)
     layer_1 = K.layers.Activation("relu")(layer_1)
@@ -42,18 +78,48 @@ def example_network():
     print(model.summary())
     return model, masks
 
-def layer_block(model, mask, i, regression):
+def regression_properties(datapath):
+    ytrain = pd.read_csv(datapath + "subjects.csv")
+    mean_ytrain = float(ytrain[ytrain["set"] == 1]["labels"].mean())
+    negative_values_ytrain = float(ytrain[ytrain["set"] == 1]["labels"].min()) < 0
+    return mean_ytrain, negative_values_ytrain
 
+def layer_block(model, mask, i, regression):
+    
     if regression:
-        activation_type = "relu"
+        activation_type="relu"
     else:
-        activation_type = "tanh"
+        activation_type="tanh"
 
     model = LocallyDirected1D(mask=mask, filters=1, input_shape=(mask.shape[0], 1),
                               name="LocallyDirected_" + str(i))(model)
     model = K.layers.Activation(activation_type)(model)
     model = K.layers.BatchNormalization(center=False, scale=False)(model)
     return model
+
+def activation_layer(model, regression, negative_values_ytrain):
+   
+    if regression: 
+        if negative_values_ytrain:
+            model = K.layers.Activation("linear")(model)
+            print('using a linear activation function')
+        else:
+            model = K.layers.Activation("relu")(model)
+            print('using a relu activation function')
+    else:
+        model = K.layers.Activation("sigmoid")(model)
+        
+    return model
+
+
+def add_covariates(model, input_cov, num_covariates, regression, negative_values_ytrain, mean_ytrain):
+    if num_covariates > 0:
+        model = activation_layer(model, regression, negative_values_ytrain)
+        model = K.layers.concatenate([model, input_cov], axis=1)
+        model = K.layers.BatchNormalization()(model)
+        model = K.layers.Dense(units=1, bias_initializer= tf.keras.initializers.Constant(mean_ytrain))(model)
+    return model
+
 
 def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, regression=False, num_covariates=0):
     print("Creating networks from npz masks")
@@ -66,12 +132,15 @@ def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, r
         mean_ytrain = 0
         negative_values_ytrain = False
     masks = []
+    
     network_csv = pd.read_csv(datapath + "/topology.csv")
     network_csv = network_csv.filter(like="node", axis=1)
     columns = list(network_csv.columns.values)
     network_csv = network_csv.sort_values(by=columns, ascending=True)
 
     input_layer = K.Input((inputsize,), name='input_layer')
+    input_cov = K.Input((num_covariates,), name='inputs_cov')
+    
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
     for i in range(len(columns) - 1):
