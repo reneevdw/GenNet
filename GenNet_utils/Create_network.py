@@ -237,7 +237,12 @@ def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, r
     return model, masks
 
 
-def lasso(inputsize, l1_value, num_covariates=0, regression=False):
+def lasso(datapath, inputsize, l1_value, num_covariates=0, regression=False):
+    if regression:
+        mean_ytrain, negative_values_ytrain = regression_properties(datapath)
+    else:
+        mean_ytrain = 0
+        negative_values_ytrain = False
     masks=[]
     inputs = K.Input((inputsize,), name='inputs')
     input_cov = K.Input((num_covariates,), name='inputs_cov')

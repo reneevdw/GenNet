@@ -76,8 +76,9 @@ def train_classification(args):
         model, masks = create_network_from_csv(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
                                                l1_value=l1_value, num_covariates=num_covariates)
     if len(glob.glob(datapath + "/*.npz")) > 0:
-        model, masks = create_network_from_npz(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
-                                               l1_value=l1_value, num_covariates=num_covariates)
+        #model, masks = create_network_from_npz(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
+        #                                       l1_value=l1_value, num_covariates=num_covariates)
+        model, masks = lasso(datapath=datapath, inputsize, l1_value=l1_value, num_covariates=num_covariates)
         #     model, masks = lasso(6690270, l1_value)
 
 
