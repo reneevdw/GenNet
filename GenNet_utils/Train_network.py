@@ -9,6 +9,10 @@ matplotlib.use('agg')
 sys.path.insert(1, os.path.dirname(os.getcwd()) + "/GenNet_utils/")
 import tensorflow as tf
 import tensorflow.keras as K
+from tensorflow.keras import mixed_precision
+
+policy = mixed_precision.Policy('mixed_float16')
+mixed_precision.set_global_policy(policy)
 
 tf.keras.backend.set_epsilon(0.0000001)
 from GenNet_utils.Dataloader import *
@@ -18,8 +22,8 @@ from GenNet_utils.Create_plots import *
 
 
 def weighted_binary_crossentropy(y_true, y_pred):
-    y_true = K.backend.clip(y_true, 0.0001, 1)
-    y_pred = K.backend.clip(y_pred, 0.0001, 1)
+    y_true = K.backend.clip(tf.cast(y_true, dtype=tf.float32), 0.0001, 1)
+    y_pred = K.backend.clip(tf.cast(y_pred, dtype=tf.float32), 0.0001, 1)
 
     return K.backend.mean(
         -y_true * K.backend.log(y_pred + 0.0001) * weight_positive_class - (1 - y_true) * K.backend.log(
@@ -55,6 +59,7 @@ def train_classification(args):
     train_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 1)
     val_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 2)
     test_size = sum(pd.read_csv(datapath + "subjects.csv")["set"] == 3)
+    num_covariates = pd.read_csv(datapath + "subjects.csv").filter(like='cov_').shape[1]
     inputsize = get_inputsize(genotype_path)
 
     folder, resultpath = get_paths(jobid)
@@ -68,10 +73,10 @@ def train_classification(args):
 
     if os.path.exists(datapath + "/topology.csv"):
         model, masks = create_network_from_csv(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
-                                               l1_value=l1_value)
+                                               l1_value=l1_value, num_covariates=num_covariates)
     if len(glob.glob(datapath + "/*.npz")) > 0:
         model, masks = create_network_from_npz(datapath=datapath, inputsize=inputsize, genotype_path=genotype_path,
-                                               l1_value=l1_value)
+                                               l1_value=l1_value, num_covariates=num_covariates)
         #     model, masks = lasso(6690270, l1_value)
 
 
@@ -89,11 +94,11 @@ def train_classification(args):
     if os.path.exists(resultpath + '/bestweights_job.h5'):
         print('Model already Trained')
     else:
-
+        print("start training")
         train_generator = TrainDataGenerator(datapath=datapath,
                                              genotype_path=genotype_path,
                                              batch_size=batch_size,
-                                             trainsize=int(train_size), 
+                                             trainsize=int(train_size),
                                              inputsize=inputsize)
         history = model.fit_generator(
             generator=train_generator,
@@ -101,9 +106,10 @@ def train_classification(args):
             epochs=epochs,
             verbose=1,
             callbacks=[earlystop, saveBestModel],
-            workers=10,
-            use_multiprocessing=True,
-            validation_data=EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=batch_size, setsize=val_size, inputsize=inputsize, evalset="validation")
+            workers=1,
+            use_multiprocessing=False,
+            validation_data=EvalGenerator(datapath=datapath, genotype_path=genotype_path, batch_size=batch_size, setsize=val_size,
+                                          inputsize=inputsize, evalset="validation")
         )
 
         plt.plot(history.history['loss'])

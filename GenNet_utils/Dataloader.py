@@ -21,6 +21,7 @@ def check_data(datapath, genotype_path, mode):
     network_structure = False
     patient_info = False
     multiple_genotype_matrices = False
+    number_of_covariates = False
     classification_problem = "undetermined"
 
     if os.path.exists(genotype_path + 'genotype.h5'):
@@ -39,6 +40,11 @@ def check_data(datapath, genotype_path, mode):
     if os.path.exists(datapath + 'subjects.csv'):
         patient_info = True
         groundtruth = pd.read_csv(datapath + "/subjects.csv")
+
+        number_of_covariates = groundtruth.filter(like="cov_").shape[1]
+        print('number of covariates:', number_of_covariates)
+        print('columns found:', list(groundtruth.filter(like="cov_").columns.values))
+
         if {'patient_id', 'labels', 'genotype_row', 'set'}.issubset(groundtruth.columns):
             classification_problem = ((groundtruth["labels"].values == 0) | (groundtruth["labels"].values == 1)).all()
         else:
@@ -66,7 +72,7 @@ def check_data(datapath, genotype_path, mode):
     if genotype_matrix & network_structure & patient_info:
         return
     else:
-        print("did you forget the last (/) slash?")
+        print("Did you forget the last (/) slash?")
         exit()
 
 
@@ -125,18 +131,22 @@ class TrainDataGenerator(K.utils.Sequence):
         return xbatch, ybatch
 
     def single_genotype_matrix(self, idx):
-        genotype_hdf = self.open_hdf5()
+        genotype_hdf = tables.open_file(self.genotype_path + "/genotype.h5", "r")
         batchindexes = self.shuffledindexes[idx * self.batch_size:((idx + 1) * self.batch_size)]
         ybatch = self.training_subjects["labels"].iloc[batchindexes]
+        xcov = self.training_subjects.filter(like="cov_").iloc[batchindexes]
+        xcov = xcov.values
         xbatchid = np.array(self.training_subjects["genotype_row"].iloc[batchindexes], dtype=np.int64)
-        xbatch = genotype_hdf[0].root.data[xbatchid, :]
+        xbatch = genotype_hdf.root.data[xbatchid, :]
         ybatch = np.reshape(np.array(ybatch), (-1, 1))
-        self.close_hdf5(genotype_hdf)
-        return xbatch, ybatch
+        genotype_hdf.close()
+        return [xbatch, xcov], ybatch
 
     def multi_genotype_matrix(self, idx):
         batchindexes = self.shuffledindexes[idx * self.batch_size:((idx + 1) * self.batch_size)]
         ybatch = self.training_subjects["labels"].iloc[batchindexes]
+        xcov = self.training_subjects.filter(like="cov_").iloc[batchindexes]
+        xcov = xcov.values
         subjects_current_batch = self.training_subjects.iloc[batchindexes]
         subjects_current_batch["batch_index"] = np.arange(len(subjects_current_batch))
         xbatch = np.zeros((len(ybatch), self.inputsize))
@@ -151,7 +161,7 @@ class TrainDataGenerator(K.utils.Sequence):
             xbatch[subjects_current_chunk["batch_index"].values, :] = genotype_hdf.root.data[xbatchid, :]
             genotype_hdf.close()
         ybatch = np.reshape(np.array(ybatch), (-1, 1))
-        return xbatch, ybatch
+        return [xbatch, xcov], ybatch
 
     def on_epoch_begin(self):
         """Updates indexes after each epoch"""
@@ -186,7 +196,7 @@ class EvalGenerator(K.utils.Sequence):
         return val_len
 
     def __getitem__(self, idx):
-        if len(glob.glob(self.genotype_path + '*.h5')) > 0:
+        if self.multi_h5:
             xbatch, ybatch = self.multi_genotype_matrix(idx)
         else:
             xbatch, ybatch = self.single_genotype_matrix(idx)
@@ -194,44 +204,33 @@ class EvalGenerator(K.utils.Sequence):
         return xbatch, ybatch
 
     def single_genotype_matrix(self, idx):
-        genotype_hdf = self.open_hdf5()
+        genotype_hdf = genotype_hdf = tables.open_file(self.genotype_path + "/genotype.h5", "r")
         ybatch = self.eval_subjects["labels"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
-        xbatchid = np.array(self.eval_subjects["genotype_row"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)],
-                            dtype=np.int64)
-        xbatch = genotype_hdf[0].root.data[xbatchid, :]
+        xcov = self.eval_subjects.filter(like="cov_").iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
+        xcov = xcov.values
+        xbatchid = np.array(
+            self.eval_subjects["genotype_row"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)],
+            dtype=np.int64)
+        xbatch = genotype_hdf.root.data[xbatchid, :]
         ybatch = np.reshape(np.array(ybatch), (-1, 1))
-        self.close_hdf5(genotype_hdf)
-        return xbatch, ybatch
+        genotype_hdf.close()
+        return [xbatch, xcov], ybatch
 
-
-    def multi_genotype_matrix(self, idx):      
+    def multi_genotype_matrix(self, idx):
         subjects_current_batch = self.eval_subjects.iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
         subjects_current_batch["batch_index"] = np.arange(subjects_current_batch.shape[0])
-              
+
         xbatch = np.zeros((len(subjects_current_batch["labels"]), self.inputsize))
 
         for i in subjects_current_batch["chunk_id"].unique():
             genotype_hdf = tables.open_file(self.genotype_path + "/" + str(i) + self.h5filenames + ".h5", "r")
             subjects_current_chunk = subjects_current_batch[subjects_current_batch["chunk_id"] == i]
             xbatchid = np.array(subjects_current_chunk["genotype_row"].values, dtype=np.int64)
-#             if len(xbatchid) > 1:
-#                 pass
-#             else:
-#                 xbatchid = int(xbatchid)
             xbatch[subjects_current_chunk["batch_index"].values, :] = genotype_hdf.root.data[xbatchid, :]
             genotype_hdf.close()
         ybatch = np.reshape(np.array(subjects_current_batch["labels"]), (-1, 1))
-        return xbatch, ybatch
-    
-    
-#         genotype_hdf = self.open_hdf5()
-#         ybatch = self.eval_subjects["labels"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)]
-#         xbatchid = np.array(self.eval_subjects["genotype_row"].iloc[idx * self.batch_size:((idx + 1) * self.batch_size)],
-#                             dtype=np.int64)
-#         xbatch = genotype_hdf[0].root.data[xbatchid, :]
-#         ybatch = np.reshape(np.array(ybatch), (-1, 1))
-#         self.close_hdf5(genotype_hdf)
-#         return xbatch, ybatch
+        xcov = subjects_current_batch.filter(like="cov_").values
+        return [xbatch, xcov], ybatch
 
 
 

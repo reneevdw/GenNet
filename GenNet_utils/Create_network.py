@@ -12,6 +12,7 @@ import tensorflow as tf
 import tensorflow.keras as K
 import scipy
 import tables
+
 tf.keras.backend.set_epsilon(0.0000001)
 tf_version = tf.__version__  # ToDo use packaging.version
 if tf_version <= '1.13.1':
@@ -22,10 +23,11 @@ else:
     print("unexpected tensorflow version")
     from GenNet_utils.LocallyDirectedConnected_tf2 import LocallyDirected1D
 
+
 def example_network():
     mask = scipy.sparse.load_npz('./folder/snps_gene.npz')
     masks = [mask]
-    
+
     inputs_ = K.Input((mask.shape[0],), name='inputs_')
     layer_0 = K.layers.Reshape(input_shape=(mask.shape[0],), target_shape=(inputsize, 1))(inputs_)
     layer_1 = LocallyDirected1D(mask=mask, filters=1, input_shape=(inputsize, 1), name="gene_layer")(layer_0)
@@ -37,6 +39,7 @@ def example_network():
     model = K.Model(inputs=inputs_, outputs=layer_2)
     return model, masks
 
+
 def layer_block(model, mask, i):
     model = LocallyDirected1D(mask=mask, filters=1, input_shape=(mask.shape[0], 1),
                               name="LocallyDirected_" + str(i))(model)
@@ -44,7 +47,25 @@ def layer_block(model, mask, i):
     model = K.layers.BatchNormalization(center=False, scale=False)(model)
     return model
 
-def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, regression=False):
+
+def activation_layer(model, regression):
+    if regression:
+        model = K.layers.Activation("linear")(model)
+    else:
+        model = K.layers.Activation("sigmoid")(model)
+    return model
+
+
+def add_covariates(model, input_cov, num_covariates, regression):
+    if num_covariates > 0:
+        model = activation_layer(model, regression)
+        model = K.layers.concatenate([model, input_cov], axis=1)
+        model = K.layers.BatchNormalization()(model)
+        model = K.layers.Dense(units=1)(model)
+    return model
+
+
+def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, regression=False, num_covariates=0):
     masks = []
     network_csv = pd.read_csv(datapath + "/topology.csv")
     network_csv = network_csv.filter(like="node", axis=1)
@@ -52,6 +73,7 @@ def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, r
     network_csv = network_csv.sort_values(by=columns, ascending=True)
 
     input_layer = K.Input((inputsize,), name='input_layer')
+    input_cov = K.Input((num_covariates,), name='inputs_cov')
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
     for i in range(len(columns) - 1):
@@ -61,27 +83,27 @@ def create_network_from_csv(datapath, inputsize, genotype_path, l1_value=0.01, r
             matrixshape = (inputsize, network_csv[columns[i + 1]].max() + 1)
         else:
             matrixshape = (network_csv[columns[i]].max() + 1, network_csv[columns[i + 1]].max() + 1)
-        mask = scipy.sparse.coo_matrix(((matrix_ones), matrix_coord), shape = matrixshape)
+        mask = scipy.sparse.coo_matrix(((matrix_ones), matrix_coord), shape=matrixshape)
         masks.append(mask)
         model = layer_block(model, mask, i)
 
     model = K.layers.Flatten()(model)
 
-    output_layer = K.layers.Dense(units=1, name="output_layer",
-                                  kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
-    if regression:
-        output_layer = K.layers.Activation("linear")(output_layer)
-    else:
-        output_layer = K.layers.Activation("sigmoid")(output_layer)
+    model = K.layers.Dense(units=1, name="output_layer",
+                           kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
 
-    model = K.Model(inputs=input_layer, outputs=output_layer)
+    model = add_covariates(model, input_cov, num_covariates, regression)
+
+    output_layer = activation_layer(model, regression)
+
+    model = K.Model(inputs=[input_layer, input_cov], outputs=output_layer)
 
     print(model.summary())
 
     return model, masks
 
-  
-def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, regression=False):
+
+def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, regression=False, num_covariates=0):
     masks = []
     mask_shapes_x = []
     mask_shapes_y = []
@@ -111,6 +133,7 @@ def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, r
 
     # Make input layer.
     input_layer = K.Input((inputsize,), name='input_layer')
+    input_cov = K.Input((num_covariates,), name='inputs_cov')
     model = K.layers.Reshape(input_shape=(inputsize,), target_shape=(inputsize, 1))(input_layer)
 
     # Add additional layers based on masks.
@@ -121,25 +144,23 @@ def create_network_from_npz(datapath, inputsize, genotype_path, l1_value=0.01, r
 
     # Add output layer.
     if all_masks_available:
-        output_layer = LocallyDirected1D(mask=masks[-1], filters=1, input_shape=(mask.shape[0], 1),
-                                         name="output_layer")(model)
+        model = LocallyDirected1D(mask=masks[-1], filters=1, input_shape=(mask.shape[0], 1),
+                                  name="output_layer")(model)
     else:
-        output_layer = K.layers.Dense(units=1, name="output_layer",
-                                      kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
+        model = K.layers.Dense(units=1, name="output_layer",
+                               kernel_regularizer=tf.keras.regularizers.l1(l=l1_value))(model)
 
-    if regression:
-        output_layer = K.layers.Activation("linear")(output_layer)
-    else:
-        output_layer = K.layers.Activation("sigmoid")(output_layer)
+    model = add_covariates(model, input_cov, num_covariates, regression)
 
-    model = K.Model(inputs=input_layer, outputs=output_layer)
+    output_layer = activation_layer(model, regression)
+    model = K.Model(inputs=[input_layer, input_cov], outputs=output_layer)
 
     print(model.summary())
     return model, masks
 
 
 def lasso(inputsize, l1_value):
-    masks=[]
+    masks = []
     inputs = K.Input((inputsize,), name='inputs')
     x1 = K.layers.BatchNormalization(center=False, scale=False, name="inter_out")(inputs)
     x1 = K.layers.Dense(units=1, kernel_regularizer=K.regularizers.l1(l1_value))(x1)
